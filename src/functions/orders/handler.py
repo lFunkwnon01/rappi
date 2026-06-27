@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from boto3.dynamodb.conditions import Key
 from fastapi import Body, HTTPException, Request
 from mangum import Mangum
@@ -8,20 +10,30 @@ from src.shared.dynamodb import now_iso, order_events_table, orders_table
 from src.shared.events import put_event
 from src.shared.ids import new_id
 from src.shared.permissions import get_current_user, require_roles
-from src.shared.response import success_response
+from src.shared.response import success_response_safe, success_response
 
 
 app = create_app("orders-service")
 
 
+def _to_decimal(value):
+    if value is None:
+        return None
+    if isinstance(value, (int, Decimal)):
+        return Decimal(value)
+    return Decimal(str(value))
+
+
 def calculate_total(items, explicit_total):
     if explicit_total is not None:
-        return float(explicit_total)
+        return _to_decimal(explicit_total)
 
-    total = 0.0
+    total = Decimal("0")
     for item in items:
-        total += float(item.get("price", 0)) * int(item.get("quantity", 1))
-    return round(total, 2)
+        price = _to_decimal(item.get("price", 0))
+        quantity = int(item.get("quantity", 1))
+        total += price * quantity
+    return total.quantize(Decimal("0.01"))
 
 
 def save_order_and_emit(order):
@@ -55,7 +67,16 @@ def save_order_and_emit(order):
 def normalize_order_items(items):
     if not isinstance(items, list) or not items:
         raise HTTPException(status_code=400, detail="items must be a non-empty array")
-    return items
+    # Convertir price a Decimal para DynamoDB
+    normalized = []
+    for item in items:
+        normalized.append({
+            "productId": item.get("productId"),
+            "name": item.get("name"),
+            "price": _to_decimal(item.get("price", 0)),
+            "quantity": int(item.get("quantity", 1)),
+        })
+    return normalized
 
 
 @app.post("/orders")
@@ -81,7 +102,7 @@ def create_order(request: Request, payload=Body(...)):
         "completedAt": None,
     }
     save_order_and_emit(order)
-    return success_response(order, 201)
+    return success_response_safe(order, 201)
 
 
 @app.post("/orders/rappi")
@@ -114,7 +135,7 @@ def create_rappi_order(request: Request, payload=Body(...)):
         "completedAt": None,
     }
     save_order_and_emit(order)
-    return success_response(order, 201)
+    return success_response_safe(order, 201)
 
 
 @app.get("/orders")
@@ -143,7 +164,7 @@ def list_orders(request: Request):
         filtered.append(order)
 
     filtered.sort(key=lambda item: item.get("createdAt", ""), reverse=True)
-    return success_response(filtered)
+    return success_response_safe(filtered)
 
 
 @app.get("/orders/{order_id}")
@@ -160,7 +181,7 @@ def get_order(order_id: str, request: Request):
     if user["role"] not in {"ADMIN", "CLIENT"} and user.get("storeId") and order.get("storeId") != user.get("storeId"):
         raise HTTPException(status_code=403, detail="Forbidden")
 
-    return success_response(order)
+    return success_response_safe(order)
 
 
 lambda_handler = Mangum(app)

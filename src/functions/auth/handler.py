@@ -8,7 +8,7 @@ from src.shared.auth import create_token, hash_password, verify_password
 from src.shared.dynamodb import now_iso, users_table
 from src.shared.ids import new_id
 from src.shared.permissions import get_current_user
-from src.shared.response import success_response
+from src.shared.response import success_response_safe, success_response
 
 
 app = create_app("auth-service")
@@ -61,7 +61,7 @@ def register(payload=Body(...)):
     }
     users_table().put_item(Item=user)
 
-    return success_response(
+    return success_response_safe(
         {
             "user": {
                 "userId": user["userId"],
@@ -89,7 +89,7 @@ def login(payload=Body(...)):
     if not user or not verify_password(password, user.get("passwordHash", "")):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    return success_response(
+    return success_response_safe(
         {
             "token": create_token(user),
             "user": {
@@ -106,7 +106,8 @@ def login(payload=Body(...)):
 
 @app.get("/auth/me")
 def me(request: Request):
-    return success_response(get_current_user(request))
+    return success_response_safe(get_current_user(request))
 
 
 lambda_handler = Mangum(app)
+# sáb 27 jun 2026 17:42:09 -05

@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from boto3.dynamodb.conditions import Key
 from fastapi import Request
 from mangum import Mangum
@@ -8,7 +10,7 @@ from src.shared.auth import hash_password
 from src.shared.dynamodb import now_iso, products_table, stores_table, users_table
 from src.shared.ids import new_id
 from src.shared.permissions import get_current_user, require_roles
-from src.shared.response import success_response
+from src.shared.response import success_response_safe, success_response
 from src.shared.seed_data import SEED_PRODUCTS, SEED_STORE, SEED_USERS
 
 
@@ -19,6 +21,13 @@ def find_user_by_email(email):
     response = users_table().query(IndexName="email-index", KeyConditionExpression=Key("email").eq(email.lower()), Limit=1)
     items = response.get("Items", [])
     return items[0] if items else None
+
+
+def _to_decimal(value):
+    """DynamoDB no acepta float - convertir todo número a Decimal."""
+    if isinstance(value, float):
+        return Decimal(str(value))
+    return value
 
 
 @app.post("/admin/seed")
@@ -41,10 +50,11 @@ def seed_demo_data(request: Request):
     for product in SEED_PRODUCTS:
         if product["name"] in existing_product_names:
             continue
+        # Convertir floats a Decimal para que DynamoDB los acepte
         product_item = {
             "tenantId": config.DEFAULT_TENANT_ID,
             "productId": new_id("prd"),
-            **product,
+            **{k: _to_decimal(v) for k, v in product.items()},
             "createdAt": now_iso(),
         }
         products_table().put_item(Item=product_item)
@@ -66,7 +76,7 @@ def seed_demo_data(request: Request):
         users_table().put_item(Item=user_item)
         created["users"].append(seed_user["email"])
 
-    return success_response({"seeded": True, "created": created})
+    return success_response_safe({"seeded": True, "created": created})
 
 
 lambda_handler = Mangum(app)

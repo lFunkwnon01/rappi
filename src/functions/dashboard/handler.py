@@ -5,7 +5,7 @@ from mangum import Mangum
 from src.shared.app import create_app
 from src.shared.dynamodb import orders_table, workflow_tasks_table
 from src.shared.permissions import get_current_user, require_roles
-from src.shared.response import success_response
+from src.shared.response import success_response_safe, success_response
 
 
 app = create_app("dashboard-service")
@@ -54,7 +54,7 @@ def get_summary(request: Request):
 
     recent_orders = sorted(orders, key=lambda item: item.get("createdAt", ""), reverse=True)[:10]
 
-    return success_response(
+    return success_response_safe(
         {
             "totalOrders": total_orders,
             "ordersByStatus": orders_by_status,

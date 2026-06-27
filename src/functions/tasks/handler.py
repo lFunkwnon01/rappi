@@ -9,7 +9,7 @@ from src.shared import config
 from src.shared.app import create_app
 from src.shared.dynamodb import now_iso, orders_table, workflow_tasks_table
 from src.shared.permissions import get_current_user
-from src.shared.response import success_response
+from src.shared.response import success_response_safe, success_response
 
 
 app = create_app("workflow-task-service")
@@ -57,7 +57,7 @@ def list_tasks(request: Request):
         items.append(task)
 
     items.sort(key=lambda item: item.get("startedAt", ""))
-    return success_response(items)
+    return success_response_safe(items)
 
 
 @app.post("/tasks/{task_id}/complete")
@@ -93,7 +93,7 @@ def complete_task(task_id: str, request: Request, payload=Body(default=None)):
         "notes": (payload or {}).get("notes", ""),
     }
     _stepfunctions.send_task_success(taskToken=task["taskToken"], output=json.dumps(callback_payload))
-    return success_response({"taskId": task["taskId"], "status": "COMPLETED", "completedAt": completed_at})
+    return success_response_safe({"taskId": task["taskId"], "status": "COMPLETED", "completedAt": completed_at})
 
 
 lambda_handler = Mangum(app)

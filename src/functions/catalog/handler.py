@@ -6,7 +6,7 @@ from src.shared.app import create_app
 from src.shared.dynamodb import now_iso, products_table, stores_table
 from src.shared.ids import new_id
 from src.shared.permissions import get_current_user, require_roles
-from src.shared.response import success_response
+from src.shared.response import success_response_safe, success_response
 
 
 app = create_app("catalog-service")
@@ -16,7 +16,7 @@ app = create_app("catalog-service")
 def list_products(request: Request):
     user = get_current_user(request)
     response = products_table().query(KeyConditionExpression=Key("tenantId").eq(user["tenantId"]))
-    return success_response(response.get("Items", []))
+    return success_response_safe(response.get("Items", []))
 
 
 @app.post("/products")
@@ -40,14 +40,14 @@ def create_product(request: Request, payload=Body(...)):
         "createdAt": now_iso(),
     }
     products_table().put_item(Item=product)
-    return success_response(product, 201)
+    return success_response_safe(product, 201)
 
 
 @app.get("/stores")
 def list_stores(request: Request):
     user = get_current_user(request)
     response = stores_table().query(KeyConditionExpression=Key("tenantId").eq(user["tenantId"]))
-    return success_response(response.get("Items", []))
+    return success_response_safe(response.get("Items", []))
 
 
 @app.post("/stores")
@@ -69,7 +69,7 @@ def create_store(request: Request, payload=Body(...)):
         "createdAt": now_iso(),
     }
     stores_table().put_item(Item=store)
-    return success_response(store, 201)
+    return success_response_safe(store, 201)
 
 
 lambda_handler = Mangum(app)

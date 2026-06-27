@@ -1,19 +1,56 @@
+import hashlib
+import hmac
+import os
+import secrets
 from datetime import datetime, timedelta, timezone
 
-import bcrypt
 import jwt
 
 from src.shared import config
 
 
-def hash_password(password):
-    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+# PBKDF2-HMAC-SHA256 con 200,000 iteraciones (OWASP 2023 recommendation).
+# builtin de Python - no requiere C extensions y es compatible con AWS Lambda
+# Python 3.11 (que corre en AL2 con glibc 2.26).
+#
+# Hash format: pbkdf2_sha256#200000#<salt-hex>#<digest-hex>
+#              ^scheme        ^iter     ^salt        ^expected
+_ITERATIONS = 200_000
+_SALT_BYTES = 16
+_HASH_ALGO = "sha256"
+_SCHEME_PREFIX = f"pbkdf2_{_HASH_ALGO}"
 
 
-def verify_password(password, password_hash):
+def _derive(password: str, salt: bytes) -> bytes:
+    return hashlib.pbkdf2_hmac(
+        _HASH_ALGO,
+        password.encode("utf-8"),
+        salt,
+        _ITERATIONS,
+    )
+
+
+def hash_password(password: str) -> str:
+    salt = secrets.token_bytes(_SALT_BYTES)
+    digest = _derive(password, salt)
+    return f"{_SCHEME_PREFIX}#{_ITERATIONS}#{salt.hex()}#{digest.hex()}"
+
+
+def verify_password(password: str, password_hash: str) -> bool:
     try:
-        return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
-    except ValueError:
+        parts = password_hash.split("#")
+        if len(parts) != 4:
+            return False
+        scheme, iter_str, salt_hex, digest_hex = parts
+        if scheme != _SCHEME_PREFIX:
+            return False
+        if int(iter_str) != _ITERATIONS:
+            return False
+        salt = bytes.fromhex(salt_hex)
+        expected = bytes.fromhex(digest_hex)
+        actual = _derive(password, salt)
+        return hmac.compare_digest(expected, actual)
+    except (ValueError, AttributeError, TypeError):
         return False
 
 
